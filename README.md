@@ -10,6 +10,14 @@
 
 [Paper](https://arxiv.org/abs/2412.21033) | [Website](https://gautierdag.github.io/plancraft/)
 
+### ⚠️ Important Note on Baseline Results
+
+The baseline performance metrics reported in the original paper are underreported due to a bug in the environment that has since been fixed.
+
+If you are using Plancraft, please re-run the baselines yourself using the code in this repository and use those as your point of comparison.
+
+For a full explanation, please see Issue [#2](/../../issues/2).
+
 ### Plancraft was accepted to COLM 2025!
 
 Plancraft is a minecraft environment that benchmarks planning in LLM agents with an oracle RAG retriever.
