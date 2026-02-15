@@ -22,6 +22,7 @@ dependencies = [
     "numpy",
     "pydantic-settings>=2.6.1",
     "scikit-learn>=1.6.0",
+    "github-copilot-sdk",
 ]
 
 [tool.uv]

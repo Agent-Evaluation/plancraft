@@ -4,81 +4,82 @@ This directory contains the implementation of agent architectures for the Plancr
 
 These architectures allow us to study the trade-offs between **coordination overhead** and **task performance** (success rate).
 
+## LLM Backends
+
+The agents support two LLM backends:
+
+| Backend | Base Class | LLM Wrapper | Eval Script | Default Model |
+|---------|-----------|-------------|-------------|---------------|
+| **Google Gemini** | `base.py` → `BaseAgent` | `llm.py` | `eval_gemini.py` | `gemma-3-27b-it` |
+| **GitHub Copilot SDK** | `copilot_base.py` → `CopilotBaseAgent` | `copilot_llm.py` | `eval_copilot.py` | `gpt-5-mini` |
+
+The Copilot SDK agents are async (using `asyncio`) and communicate with the Copilot CLI via JSON-RPC. The Copilot CLI must be installed and available in `$PATH`.
+
 ## Available Architectures
 
-All agents share a common interface defined in `base.py`. They are instantiated via `eval_gemini.py` using the `--architecture` flag.
+All five architectures are implemented for **both** backends. They share a common interface (`act(observation) → action`).
 
 ### 1. Single Agent (SAS)
-- **File:** `single.py`
-- **Class:** `SingleAgent`
+- **Gemini:** `single.py` → `SingleAgent`
+- **Copilot:** `copilot_single.py` → `CopilotSingleAgent`
 - **Description:** The baseline system. A single LLM instance perceives the environment, reasons, and acts sequentially.
 - **Paper scaling principle:** Serves as the reference point ($1.0\times$ cost, $1.0\times$ overhead).
-- **Use Case:** Simple sequential tasks or when latency is critical.
 
 ### 2. Independent Multi-Agent System (Ensemble)
-- **File:** `multi.py`
-- **Class:** `IndependentAgent`
-- **Description:** $N$ agents run in parallel (simulated sequentially here for API stability) on the same observation. They do **not** communicate.
-- **Aggregation:** Majority Voting (Consensus). The most common action proposed by the $N$ agents is executed.
-- **Key Characteristic:** High **Redundancy**. Good for reducing variance, but prone to **Error Amplification** ($17.2\times$ in paper) if the majority is wrong.
-- **Topology:** Disconnected set.
+- **Gemini:** `multi.py` → `IndependentAgent`
+- **Copilot:** `copilot_multi.py` → `CopilotIndependentAgent`
+- **Description:** $N$ agents run in parallel on the same observation. No communication.
+- **Aggregation:** Majority Voting (Consensus).
+- **Key Characteristic:** High **Redundancy**. Prone to **Error Amplification** ($17.2\times$ in paper) if majority is wrong.
 
 ### 3. Centralized Multi-Agent System (Hierarchy)
-- **File:** `multi.py`
-- **Class:** `CentralizedAgent`
-- **Description:** A hierarchical structure with a distinct **Orchestrator** and **Worker(s)**.
-- **Flow:**
-  1. **Orchestrator:** Analyzes the state and generates a high-level Plan.
-  2. **Worker:** Executes the specific action required by the Plan.
-- **Key Characteristic:** **Error Containment**. The orchestrator acts as a bottleneck/validator, reducing error propagation ($4.4\times$ in paper).
-- **Topology:** Star (Orchestrator connected to all Workers).
+- **Gemini:** `multi.py` → `CentralizedAgent`
+- **Copilot:** `copilot_multi.py` → `CopilotCentralizedAgent`
+- **Description:** Orchestrator analyzes state → generates plan → Worker executes action.
+- **Key Characteristic:** **Error Containment** ($4.4\times$ in paper). Star topology.
 
 ### 4. Decentralized Multi-Agent System (Debate)
-- **File:** `multi.py`
-- **Class:** `DecentralizedAgent`
-- **Description:** Agents engage in peer-to-peer communication (Debate) before acting.
-- **Flow:**
-  1. Agents propose initial actions.
-  2. Agents see each other's proposals (Debate Rounds).
-  3. Agents revise their proposals.
-  4. Final consensus via voting.
-- **Key Characteristic:** High **Information Fusion**. Effective for tasks with high entropy (e.g., open-ended search), but high **Coordination Overhead**.
-- **Topology:** Mess / All-to-All.
+- **Gemini:** `multi.py` → `DecentralizedAgent`
+- **Copilot:** `copilot_multi.py` → `CopilotDecentralizedAgent`
+- **Description:** Agents propose → debate rounds → revise → final vote.
+- **Key Characteristic:** High **Information Fusion**, high **Coordination Overhead**. All-to-All topology.
 
 ### 5. Hybrid Multi-Agent System
-- **File:** `multi.py`
-- **Class:** `HybridAgent`
-- **Description:** Cmbines Centralized control with Decentralized execution.
-- **Flow:**
-  1. Orchestrator sets a Directive.
-  2. Workers debate the best way to execute that directive.
-  3. Orchestrator aggregates the final result.
-- **Key Characteristic:** Balanced approach. Stabilizes the high variance of decentralized systems using hierarchical control.
+- **Gemini:** `multi.py` → `HybridAgent`
+- **Copilot:** `copilot_multi.py` → `CopilotHybridAgent`
+- **Description:** Orchestrator sets directive → Workers debate → Orchestrator aggregates.
+- **Key Characteristic:** Balanced approach. Stabilizes decentralized variance with hierarchical control.
 
 ## Usage
 
-You can run evaluations for any architecture using the `eval_gemini.py` script at the project root.
+### Gemini Backend
 
 ```bash
-# 1. Single Agent (Baseline)
 python eval_gemini.py --architecture single
-
-# 2. Independent (Ensemble)
 python eval_gemini.py --architecture independent
-
-# 3. Centralized (Manager-Worker)
 python eval_gemini.py --architecture centralized
-
-# 4. Decentralized (Debate)
 python eval_gemini.py --architecture decentralized
-
-# 5. Hybrid (Manager + Debate)
 python eval_gemini.py --architecture hybrid
+```
+
+### Copilot SDK Backend
+
+Requires `copilot` CLI in PATH and a Copilot subscription. Default model is `gpt-5-mini` (0 premium request cost).
+
+```bash
+python eval_copilot.py --architecture single
+python eval_copilot.py --architecture independent
+python eval_copilot.py --architecture centralized
+python eval_copilot.py --architecture decentralized
+python eval_copilot.py --architecture hybrid
+
+# Use a different model
+python eval_copilot.py --architecture single --model gpt-5
 ```
 
 ## Adding New Agents
 
 To add a new agent architecture:
-1. Create a class in `plancraft/agents/` inheriting from `BaseAgent`.
-2. Implement the `act(observation)` method.
-3. Register it in the `get_agent` factory function in `eval_gemini.py`.
+1. Create a class inheriting from `BaseAgent` (Gemini) or `CopilotBaseAgent` (Copilot).
+2. Implement the `act(observation)` method (sync for Gemini, `async` for Copilot).
+3. Register it in the `get_agent` factory in `eval_gemini.py` or `eval_copilot.py`.

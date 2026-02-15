@@ -52,7 +52,7 @@ class IndependentAgent(BaseAgent):
     For sequential tasks, we implement this as Majority Voting at each step.
     Each agent proposes an action, and the most common action is taken.
     """
-    def __init__(self, model_name: str, client: genai.Client, num_agents: int = 3):
+    def __init__(self, model_name: str, client: genai.Client, num_agents: int = 2):
         super().__init__(model_name, client)
         self.num_agents = num_agents
         # Each agent effectively sees the same shared history of the *consensus* actions,
@@ -179,7 +179,7 @@ class DecentralizedAgent(BaseAgent):
     """
     Decentralized MAS: Agents debate.
     """
-    def __init__(self, model_name: str, client: genai.Client, num_agents: int = 3, rounds: int = 2):
+    def __init__(self, model_name: str, client: genai.Client, num_agents: int = 2, rounds: int = 2):
         super().__init__(model_name, client)
         self.num_agents = num_agents
         self.rounds = rounds
@@ -245,7 +245,7 @@ class HybridAgent(BaseAgent):
     2. Workers debate.
     3. Orchestrator aggregates final decision.
     """
-    def __init__(self, model_name: str, client: genai.Client, num_agents: int = 3):
+    def __init__(self, model_name: str, client: genai.Client, num_agents: int = 2):
         super().__init__(model_name, client)
         self.num_agents = num_agents
 

@@ -6,7 +6,7 @@ from typing import Any
 
 MAX_RETRIES = 5
 INITIAL_RETRY_DELAY = 5
-INTER_REQUEST_DELAY = 2.5
+INTER_REQUEST_DELAY = 4.0
 DEFAULT_API_KEY = "dummy-key-if-not-set"
 
 def get_gemini_client(api_key: str = None) -> genai.Client:
