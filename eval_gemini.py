@@ -10,6 +10,7 @@ Usage:
     python eval_gemini.py [--split val.small] [--max-steps 30] [--max-examples 0] [--model gemini-2.0-flash]
 """
 
+
 import argparse
 import json
 import os
@@ -24,119 +25,28 @@ from plancraft.environment.actions import (
     SmeltActionHandler,
     ImpossibleActionHandler,
 )
-from plancraft.environment.search import gold_search_recipe
+from plancraft.agents.llm import get_gemini_client, DEFAULT_API_KEY
+from plancraft.agents.single import SingleAgent
+from plancraft.agents.multi import (
+    IndependentAgent, 
+    CentralizedAgent, 
+    DecentralizedAgent,
+    HybridAgent
+)
 
-# ---------------------------------------------------------------------------
-# System prompt that teaches Gemini the Plancraft action format
-# ---------------------------------------------------------------------------
-
-SYSTEM_PROMPT = """\
-You are a Minecraft crafting agent. Your goal is to craft a target item by \
-manipulating items in your inventory using a 3×3 crafting grid.
-
-## Actions
-Respond with EXACTLY ONE action per turn (no extra text):
-
-1. **move** – move items between slots
-   `move: from [Source] to [Target] with quantity N`
-
-2. **smelt** – smelt an item (e.g. ores → ingots)
-   `smelt: from [Source] to [Target] with quantity N`
-
-3. **impossible** – declare the task impossible with current inventory
-   `impossible: <reason>`
-
-4. **search** – look up how to craft an item  
-   `search: <item_name>`
-
-## Slot names
-- Crafting grid (3×3):
-    [A1] [A2] [A3]
-    [B1] [B2] [B3]
-    [C1] [C2] [C3]
-- Crafting output: [0]  (crafted items appear here)
-- Inventory: [I1] through [I36]
-
-## Crafting rules
-1. Place raw materials from your inventory INTO the crafting grid slots \
-([A1]–[C3]) in the correct pattern.
-2. When the pattern is correct the result appears in slot [0].
-3. Move the result from [0] to any inventory slot [I1]–[I36] to collect it.
-4. Shaped recipes require items in specific grid positions.
-5. Shapeless recipes can be placed in any grid slots.
-6. Smelting uses the `smelt` action directly — no grid needed.
-
-## Strategy
-- First, if you don't know the recipe, use `search: <target_item>` to look it up.
-- Then place the required items in the crafting grid.
-- Finally, move the crafted item from [0] to an inventory slot.
-- If the inventory lacks the required materials, declare `impossible: <reason>`.
-- You may need multi-step crafting (e.g. logs → planks → sticks).
-
-## Important
-- Respond with ONLY the action, nothing else.
-- Use exact slot names like [I1], [A1], [0], etc.
-- Quantities must be between 1 and 64.
-"""
-
-
-def build_search_response(action_text: str) -> str | None:
-    """
-    If the action is a search action, perform the oracle recipe lookup
-    and return the result. Otherwise return None.
-    """
-    import re
-
-    match = re.search(r"search:\s*(\S+)", action_text)
-    if match:
-        target = match.group(1).strip().lower()
-        return gold_search_recipe(target)
-    return None
-
-
-MAX_RETRIES = 5
-INITIAL_RETRY_DELAY = 5  # seconds
-INTER_REQUEST_DELAY = 2.5  # seconds between API calls to stay under 30 RPM
-
-def call_gemini_with_retry(client, model_name, messages, system_prompt):
-    # Small delay between requests to stay comfortably under RPM limit
-    time.sleep(INTER_REQUEST_DELAY)
-
-    # Prepend system prompt as first user message (Gemma models don't support system_instruction)
-    system_msg = genai.types.Content(
-        role="user",
-        parts=[genai.types.Part(text=system_prompt)],
-    )
-    ack_msg = genai.types.Content(
-        role="model",
-        parts=[genai.types.Part(text="Understood. I will respond with exactly one action per turn.")],
-    )
-    full_messages = [system_msg, ack_msg] + messages
-
-    retries = 0
-    delay = INITIAL_RETRY_DELAY
-    while retries < MAX_RETRIES:
-        try:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=full_messages,
-                config=genai.types.GenerateContentConfig(
-                    temperature=0.0,
-                    max_output_tokens=256,
-                ),
-            )
-            return response.text.strip()
-        except Exception as e:
-            error_str = str(e)
-            if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
-                print(f"  ⏳ Rate limited. Retrying in {delay}s... (attempt {retries+1}/{MAX_RETRIES})")
-            else:
-                print(f"  ⚠ API error (attempt {retries+1}/{MAX_RETRIES}): {e}")
-            retries += 1
-            if retries < MAX_RETRIES:
-                time.sleep(delay)
-                delay *= 2
-    raise Exception(f"Failed after {MAX_RETRIES} retries.")
+def get_agent(architecture: str, model_name: str, client: genai.Client):
+    if architecture == "single":
+        return SingleAgent(model_name, client)
+    elif architecture == "independent":
+        return IndependentAgent(model_name, client)
+    elif architecture == "centralized":
+        return CentralizedAgent(model_name, client)
+    elif architecture == "decentralized":
+        return DecentralizedAgent(model_name, client)
+    elif architecture == "hybrid":
+        return HybridAgent(model_name, client)
+    else:
+        raise ValueError(f"Unknown architecture: {architecture}")
 
 
 def run_evaluation(
@@ -144,15 +54,10 @@ def run_evaluation(
     max_steps: int = 30,
     max_examples: int = 0,
     model_name: str = "gemma-3-27b-it",
+    architecture: str = "single",
 ):
     # ---- Setup Gemini client ----
-    api_key = (
-        os.environ.get("GOOGLE_API_KEY")
-        or os.environ.get("GEMINI_API_KEY")
-        or DEFAULT_API_KEY
-    )
-
-    client = genai.Client(api_key=api_key)
+    client = get_gemini_client()
 
     # ---- Load dataset ----
     examples = get_plancraft_examples(split=split)
@@ -161,6 +66,7 @@ def run_evaluation(
 
     print(f"📦 Loaded {len(examples)} examples from split '{split}'")
     print(f"🤖 Model: {model_name}")
+    print(f"🏗️  Architecture: {architecture}")
     print(f"🔄 Max steps per example: {max_steps}")
     print("-" * 60)
 
@@ -187,56 +93,28 @@ def run_evaluation(
             use_text_inventory=True,
         )
 
+        # Initialize Agent
+        agent = get_agent(architecture, model_name, client)
+        agent.reset(example.id, example.target)
+
         # Get initial observation
         observation, reward, terminated, truncated, info = env.step("")
-
-        # Build conversation history for Gemini
-        conversation = [
-            {"role": "user", "content": observation["text"]},
-        ]
-
+        
         step_count = 0
         while not (terminated or truncated):
             step_count += 1
-
-            # --- Call Gemini ---
+            
+            # Agent decides action
             try:
-                messages = [
-                    genai.types.Content(
-                        role=msg["role"] if msg["role"] != "assistant" else "model",
-                        parts=[genai.types.Part(text=msg["content"])],
-                    )
-                    for msg in conversation
-                ]
-
-                action_text = call_gemini_with_retry(
-                    client, model_name, messages, SYSTEM_PROMPT
-                )
-
+                action_text = agent.act(observation["text"])
             except Exception as e:
-                print(f"  ⚠ Gemini API error: {e}")
-                action_text = "impossible: API error"
-
-            # Add assistant response to conversation
-            conversation.append({"role": "model", "content": action_text})
-
-            # --- Handle search action locally (oracle RAG) ---
-            search_result = build_search_response(action_text)
-            if search_result is not None:
-                print(f"  Step {step_count}: 🔍 {action_text}")
-                # Feed recipe info back as a user message
-                conversation.append({"role": "user", "content": search_result})
-                # Search doesn't count as an env step, continue to next model call
-                continue
+                print(f"  ⚠ Agent error: {e}")
+                action_text = "impossible: Agent error"
 
             print(f"  Step {step_count}: {action_text}")
 
-            # --- Execute action in environment ---
+            # Execute action
             observation, reward, terminated, truncated, info = env.step(action_text)
-
-            # Add environment response to conversation
-            if not (terminated or truncated):
-                conversation.append({"role": "user", "content": observation["text"]})
 
         # Record result
         success = env.success
@@ -262,7 +140,6 @@ def run_evaluation(
     successes = sum(r["success"] for r in results)
     success_rate = successes / total if total > 0 else 0
 
-    # Breakdown by impossible vs possible
     possible = [r for r in results if not r["impossible"]]
     impossible = [r for r in results if r["impossible"]]
     possible_success = sum(r["success"] for r in possible) if possible else 0
@@ -272,6 +149,7 @@ def run_evaluation(
     print("📊 EVALUATION RESULTS")
     print("=" * 60)
     print(f"  Model:          {model_name}")
+    print(f"  Architecture:   {architecture}")
     print(f"  Split:          {split}")
     print(f"  Total examples: {total}")
     print(f"  Overall:        {successes}/{total} = {success_rate:.1%}")
@@ -293,12 +171,13 @@ def run_evaluation(
     os.makedirs(output_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_file = os.path.join(
-        output_dir, f"gemini_{split}_{timestamp}.json"
+        output_dir, f"gemini_{architecture}_{split}_{timestamp}.json"
     )
     with open(output_file, "w") as f:
         json.dump(
             {
                 "model": model_name,
+                "architecture": architecture,
                 "split": split,
                 "max_steps": max_steps,
                 "total": total,
@@ -323,7 +202,13 @@ if __name__ == "__main__":
         default=0,
         help="Max examples to evaluate (0 = all)",
     )
-    parser.add_argument("--model", default="gemma-3-27b-it", help="Model name (default: gemma-3-27b-it, 30 RPM / 14.4K RPD)")
+    parser.add_argument("--model", default="gemma-3-27b-it", help="Model name")
+    parser.add_argument(
+        "--architecture", 
+        default="single", 
+        choices=["single", "independent", "centralized", "decentralized", "hybrid"],
+        help="Agent architecture to use"
+    )
     args = parser.parse_args()
 
     run_evaluation(
@@ -331,4 +216,6 @@ if __name__ == "__main__":
         max_steps=args.max_steps,
         max_examples=args.max_examples,
         model_name=args.model,
+        architecture=args.architecture,
     )
+
