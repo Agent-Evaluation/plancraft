@@ -1,4 +1,5 @@
 
+import asyncio
 import logging
 from collections import Counter
 from copilot import CopilotClient
@@ -59,19 +60,24 @@ class CopilotIndependentAgent(CopilotBaseAgent):
         if observation_text:
             self.conversation.append({"role": "user", "content": observation_text})
 
-        actions = []
-        for i in range(self.num_agents):
+        # Run all agents in parallel using asyncio.gather (like MassGen)
+        async def _call_agent(i: int) -> str | None:
             try:
-                action = await call_copilot_with_retry(
+                return await call_copilot_with_retry(
                     self.client,
                     self.model_name,
                     self.conversation,
                     SYSTEM_PROMPT,
                     temperature=0.7,
                 )
-                actions.append(action)
             except Exception as e:
                 self.log(f"Agent {i} failed: {e}")
+                return None
+
+        results = await asyncio.gather(
+            *[_call_agent(i) for i in range(self.num_agents)]
+        )
+        actions = [r for r in results if r is not None]
 
         if not actions:
             return "impossible: All agents failed"
@@ -148,34 +154,36 @@ class CopilotDecentralizedAgent(CopilotBaseAgent):
         if observation_text:
             self.conversation.append({"role": "user", "content": observation_text})
 
-        # Initial Proposals
-        proposals = []
-        for i in range(self.num_agents):
-            prop = await call_copilot_with_retry(
+        # Initial Proposals — all agents in parallel
+        initial_tasks = [
+            call_copilot_with_retry(
                 self.client, self.model_name, self.conversation, SYSTEM_PROMPT, temperature=0.7
             )
-            proposals.append(prop)
+            for _ in range(self.num_agents)
+        ]
+        proposals = list(await asyncio.gather(*initial_tasks))
 
-        # Debate Rounds
+        # Debate Rounds — agents within each round run in parallel
         current_proposals = proposals
         for r in range(self.rounds):
             self.log(f"Round {r} Proposals: {current_proposals}")
-            new_proposals = []
 
             debate_context = "Other agents proposed:\n" + "\n".join(
                 [f"- Agent {j}: {p}" for j, p in enumerate(current_proposals)]
             )
             debate_context += "\nGiven these proposals, what is your updated action?"
 
+            debate_tasks = []
             for i in range(self.num_agents):
                 debate_msgs = self.conversation + [
                     {"role": "user", "content": debate_context}
                 ]
-                new_prop = await call_copilot_with_retry(
-                    self.client, self.model_name, debate_msgs, SYSTEM_PROMPT, temperature=0.7
+                debate_tasks.append(
+                    call_copilot_with_retry(
+                        self.client, self.model_name, debate_msgs, SYSTEM_PROMPT, temperature=0.7
+                    )
                 )
-                new_proposals.append(new_prop)
-            current_proposals = new_proposals
+            current_proposals = list(await asyncio.gather(*debate_tasks))
 
         # Final Vote
         counts = Counter(current_proposals)
@@ -204,7 +212,7 @@ class CopilotHybridAgent(CopilotBaseAgent):
         if observation_text:
             self.conversation.append({"role": "user", "content": observation_text})
 
-        # Step 1: Orchestrator Directive
+        # Step 1: Orchestrator Directive (must be sequential — workers depend on it)
         directive_prompt = (
             SYSTEM_PROMPT +
             "\n\n[Orchestrator] Briefly analyze the situation and give a directive to your workers."
@@ -214,18 +222,19 @@ class CopilotHybridAgent(CopilotBaseAgent):
         )
         self.log(f"Manager Directive: {directive}")
 
-        # Step 2: Worker Debate
+        # Step 2: Workers propose in parallel
         worker_msgs = self.conversation + [
             {"role": "model", "content": directive},
             {"role": "user", "content": "Workers, propose an action based on directive."},
         ]
 
-        actions = []
-        for i in range(self.num_agents):
-            act = await call_copilot_with_retry(
+        worker_tasks = [
+            call_copilot_with_retry(
                 self.client, self.model_name, worker_msgs, SYSTEM_PROMPT, temperature=0.7
             )
-            actions.append(act)
+            for _ in range(self.num_agents)
+        ]
+        actions = list(await asyncio.gather(*worker_tasks))
 
         # Step 3: Manager Decision
         final_msgs = worker_msgs + [
