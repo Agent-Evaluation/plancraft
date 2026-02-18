@@ -1,46 +1,37 @@
-# Research Benchmark: Single Agent Copilot Evaluation
-
+# Research Benchmark: Copilot Evaluation Report
 **Model**: gpt-5-mini
-**Dataset**: Plancraft (val.small, N=110)
-**Date**: 2026-02-16
+**Dataset**: Plancraft (val.small)
+**Date**: 2026-02-18
 
 ## 1. Executive Summary
-- **Overall Success Rate**: 80.0%
-- **Average Steps (Successes)**: 5.9
-- **Total Examples Solved**: 88/110
+| Architecture | Success Rate | Avg Time/Ex | Status |
+|--------------|--------------|-------------|--------|
+| Single       | 82.7% | 227.9s | ✅ Complete |
+| Independent  | 77.3% | 626.2s | ✅ Complete |
+| Centralized  | TBD          | TBD         | 🔄 Running... |
+| Decentralized| TBD          | TBD         | ⏳ Pending |
+| Hybrid       | TBD          | TBD         | ⏳ Pending |
 
-## 2. Performance by Complexity
-The agent demonstrates strong performance on low-complexity tasks but shows degradation as task complexity increases.
+## 2. Single Agent Analysis
+### Complexity Breakdown
+| Complexity | Total | Success | Rate |
+|------------|-------|---------|------|
+| Low (1-2) | 18 | 18 | 100.0% |
+| Medium (3-8) | 30 | 26 | 86.7% |
+| High (9+) | 62 | 47 | 75.8% |
 
-| Complexity Level | Total | Success | Success Rate | Avg Steps |
-|------------------|-------|---------|--------------|-----------|
-| Low (1-2) | 38 | 38 | 100.0% | 1.5 |
-| Medium (3-8) | 30 | 28 | 93.3% | 6.4 |
-| High (9+) | 42 | 22 | 52.4% | 12.9 |
+### Top Failure Modes
+- `max_steps_reached`: 10
+- `incorrect_stop`: 9
 
-## 3. Failure Analysis
-Total Failures: 22
+## 3. Independent Agent Analysis
+### Complexity Breakdown
+| Complexity | Total | Success | Rate |
+|------------|-------|---------|------|
+| Low (1-2) | 18 | 17 | 94.4% |
+| Medium (3-8) | 30 | 26 | 86.7% |
+| High (9+) | 62 | 42 | 67.7% |
 
-| Failure Reason | Count |
-|----------------|-------|
-| `incorrect_stop` | 13 |
-| `max_steps_reached` | 9 |
-
-### Analysis of Failures
-- **`incorrect_stop`**: The agent hallucinated that the task was impossible or claimed success prematurely. This is common in high-complexity tasks where the agent fails to plan deep dependency trees (e.g., needing to craft intermediate tools).
-- **`max_steps_reached`**: The agent got stuck in a loop or inefficiently wandered through the crafting graph, exceeding the 30-step limit. This typically happens with deep recipe chains (Complexity 9+).
-
-## 4. Conclusion & Recommendations
-The **Single Agent** architecture using `gpt-5-mini` provides a strong baseline with **80.0% accuracy** on the `val.small` set.
-
-### Strengths
-- **Efficiency**: Solves simple tasks (Complexity 1-2) with near-optimal step counts.
-- **Tool Usage**: Correctly uses the `search` tool to discover recipes.
-
-### Weaknesses
-- **Long-Horizon Planning**: Struggles with high-complexity items (Complexity > 9) leading to timeouts or incorrect stops.
-- **False Negatives**: Occasionally incorrectly labels feasible tasks as `impossible`.
-
-### Future Work
-- **Multi-Agent Comparison**: A Multi-Agent System (MAS) could tackle high-complexity tasks by parallelizing sub-goals.
-- **Planning Decomposition**: Separating planning from execution could reduce `max_steps_reached` failures.
+### Top Failure Modes
+- `incorrect_stop`: 14
+- `max_steps_reached`: 11
