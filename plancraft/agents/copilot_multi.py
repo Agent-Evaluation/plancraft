@@ -161,7 +161,10 @@ class CopilotDecentralizedAgent(CopilotBaseAgent):
             )
             for _ in range(self.num_agents)
         ]
-        proposals = list(await asyncio.gather(*initial_tasks))
+        results = await asyncio.gather(*initial_tasks, return_exceptions=True)
+        proposals = [p for p in results if not isinstance(p, Exception)]
+        if not proposals:
+            return "impossible: All agents failed"
 
         # Debate Rounds — agents within each round run in parallel
         current_proposals = proposals
@@ -183,9 +186,14 @@ class CopilotDecentralizedAgent(CopilotBaseAgent):
                         self.client, self.model_name, debate_msgs, SYSTEM_PROMPT, temperature=0.7
                     )
                 )
-            current_proposals = list(await asyncio.gather(*debate_tasks))
+            results = await asyncio.gather(*debate_tasks, return_exceptions=True)
+            current_proposals = [p for p in results if not isinstance(p, Exception)]
+            if not current_proposals:
+                break
 
         # Final Vote
+        if not current_proposals:
+            return "impossible: All agents failed during debate"
         counts = Counter(current_proposals)
         best_action, _ = counts.most_common(1)[0]
 
@@ -234,7 +242,10 @@ class CopilotHybridAgent(CopilotBaseAgent):
             )
             for _ in range(self.num_agents)
         ]
-        actions = list(await asyncio.gather(*worker_tasks))
+        results = await asyncio.gather(*worker_tasks, return_exceptions=True)
+        actions = [a for a in results if not isinstance(a, Exception)]
+        if not actions:
+            return "impossible: All workers failed to propose"
 
         # Step 3: Manager Decision
         final_msgs = worker_msgs + [
