@@ -9,7 +9,7 @@
 | Single       | 82.7% | 227.9s | ✅ Complete |
 | Independent  | 77.3% | 626.2s | ✅ Complete |
 | Centralized  | 66.4% | 409.5s | ✅ Complete |
-| Decentralized| TBD          | TBD         | 🔄 Running... |
+| Decentralized| 72.7% | 558.6s | ✅ Complete |
 | Hybrid       | 52.7% | 678.7s | ✅ Complete |
 
 ## 2. Single Agent Analysis
@@ -59,3 +59,15 @@
 ### Top Failure Modes
 - `incorrect_stop`: 32
 - `max_steps_reached`: 20
+
+## 6. Decentralized Agent Analysis
+### Complexity Breakdown
+| Complexity | Total | Success | Rate |
+|------------|-------|---------|------|
+| Low (1-2) | 18 | 18 | 100.0% |
+| Medium (3-8) | 30 | 23 | 76.7% |
+| High (9+) | 42 | 19 | 45.2% |
+
+### Top Failure Modes
+- `incorrect_stop`: 16
+- `max_steps_reached`: 14
