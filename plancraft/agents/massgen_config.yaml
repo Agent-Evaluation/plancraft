@@ -1,0 +1,50 @@
+agents:
+- id: agent_a
+  backend:
+    type: copilot
+    model: gpt-5-mini
+    cwd: workspace
+    exclude_file_operation_mcps: false
+    enable_web_search: false
+- id: agent_b
+  backend:
+    type: copilot
+    model: gpt-4.1
+    cwd: workspace
+    exclude_file_operation_mcps: false
+    enable_web_search: false
+- id: agent_c
+  backend:
+    type: copilot
+    model: gpt-5-mini
+    cwd: workspace
+    exclude_file_operation_mcps: false
+    enable_web_search: false
+orchestrator:
+  snapshot_storage: snapshots
+  agent_temporary_workspace: temp_workspaces
+  max_new_answers_per_agent: 5
+  fairness_enabled: true
+  fairness_lead_cap_answers: 2
+  max_midstream_injections_per_round: 2
+  enable_multimodal_tools: true
+  image_generation_backend: openai
+  video_generation_backend: openai
+  audio_generation_backend: openai
+  coordination:
+    max_orchestration_restarts: 0
+    enable_agent_task_planning: true
+    task_planning_filesystem_mode: true
+    enable_memory_filesystem_mode: true
+    write_mode: auto
+  context_paths: []
+  voting_sensitivity: lenient
+  answer_novelty_requirement: lenient
+timeout_settings:
+  orchestrator_timeout_seconds: 3600
+  initial_round_timeout_seconds: 1200
+  subsequent_round_timeout_seconds: 900
+  round_timeout_grace_seconds: 300
+ui:
+  display_type: textual_terminal
+  logging_enabled: true
