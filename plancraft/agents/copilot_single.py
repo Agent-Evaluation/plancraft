@@ -66,6 +66,16 @@ class CopilotSingleAgent(CopilotBaseAgent):
         if observation_text:
             self.conversation.append({"role": "user", "content": observation_text})
 
+        # --- DEBUG LOGGING ---
+        print("\n" + "="*50 + " DEBUG: COPILOT CALL " + "="*50)
+        print("SYSTEM PROMPT:")
+        print(SYSTEM_PROMPT)
+        print("\nCONVERSATION HISTORY:")
+        import json
+        print(json.dumps(self.conversation, indent=2))
+        print("="*121 + "\n")
+        # ---------------------
+
         # 2. Call Copilot
         action_text = await call_copilot_with_retry(
             self.client,
@@ -74,6 +84,9 @@ class CopilotSingleAgent(CopilotBaseAgent):
             SYSTEM_PROMPT,
         )
 
+        # --- DEBUG LOGGING ---
+        print(f"MODEL RESPONSE: {action_text}\n")
+        # ---------------------
         # 3. Add model response to history
         self.conversation.append({"role": "model", "content": action_text})
 
