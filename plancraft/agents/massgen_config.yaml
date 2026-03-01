@@ -1,22 +1,19 @@
 agents:
 - id: agent_a
   backend:
-    type: copilot
-    model: gpt-5-mini
-    cwd: workspace
-    exclude_file_operation_mcps: false
+    type: chatcompletion
+    model: moonshotai/kimi-k2.5
+    base_url: https://integrate.api.nvidia.com/v1
 - id: agent_b
   backend:
-    type: copilot
-    model: gpt-5-mini
-    cwd: workspace
-    exclude_file_operation_mcps: false
+    type: chatcompletion
+    model: moonshotai/kimi-k2.5
+    base_url: https://integrate.api.nvidia.com/v1
 - id: agent_c
   backend:
-    type: copilot
-    model: gpt-5-mini
-    cwd: workspace
-    exclude_file_operation_mcps: false
+    type: chatcompletion
+    model: moonshotai/kimi-k2.5
+    base_url: https://integrate.api.nvidia.com/v1
 orchestrator:
   snapshot_storage: snapshots
   agent_temporary_workspace: temp_workspaces
@@ -24,15 +21,12 @@ orchestrator:
   fairness_enabled: true
   fairness_lead_cap_answers: 2
   max_midstream_injections_per_round: 2
-  enable_multimodal_tools: true
-  image_generation_backend: openai
-  video_generation_backend: openai
-  audio_generation_backend: openai
+  enable_multimodal_tools: false
   coordination:
     max_orchestration_restarts: 0
     enable_agent_task_planning: true
-    task_planning_filesystem_mode: true
-    enable_memory_filesystem_mode: true
+    task_planning_filesystem_mode: false
+    enable_memory_filesystem_mode: false
     write_mode: auto
   context_paths: []
   coordination_mode: voting

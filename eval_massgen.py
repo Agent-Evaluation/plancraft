@@ -1,8 +1,5 @@
 """
-Plancraft benchmark evaluator powered by MassGen orchestrator via LiteLLM.
-
-This benchmark intentionally runs full MassGen multi-agent orchestration for
-EVERY environment action decision.
+Plancraft benchmark evaluator powered by a persistent MassGen orchestrator.
 
 Usage:
     python eval_massgen.py --split val.small --max-steps 30 --config plancraft/agents/massgen_config.yaml
@@ -10,6 +7,7 @@ Usage:
 
 import argparse
 import asyncio
+import gc
 import json
 import os
 import time
@@ -241,6 +239,11 @@ async def run_evaluation(
                     "selected_agents": selected_agents,
                 }
             )
+
+            # Reclaim memory from the previous orchestrator session
+            del agent
+            gc.collect()
+            await asyncio.sleep(1)
 
         elapsed = time.time() - run_start
         total = len(results)

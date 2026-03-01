@@ -2,19 +2,25 @@
 MassGen orchestrated Plancraft agent.
 
 This agent keeps Plancraft's step-wise `act()` API while delegating each action
-selection to a full MassGen orchestrator run through LiteLLM.
+selection to a **persistent** MassGen Orchestrator session that lives for the
+duration of one evaluation example.
+
+Architectural change (memory-leak fix):
+  Previously each `act()` call went through the stateless `litellm.completion`
+  layer which cold-booted the entire multi-agent orchestration infrastructure
+  on every single turn. Now a single `Orchestrator` is created in `reset()`
+  and reused across all turns of the same example via `chat_simple()`.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from plancraft.environment.search import gold_search_recipe
-
-from .massgen_llm import call_massgen_with_retry
 
 SYSTEM_PROMPT = """\
 You are a Minecraft crafting agent. Your goal is to craft a target item by \
@@ -66,8 +72,51 @@ Respond with EXACTLY ONE action per turn (no extra text):
 """
 
 
+def _create_orchestrator(
+    config_path: str,
+    system_prompt: str,
+    enable_filesystem: bool = False,
+) -> Any:
+    """Create a persistent MassGen Orchestrator from a YAML config file.
+
+    This is called once per evaluation example in ``reset()`` so the heavy
+    agent-creation work happens only once instead of on every turn.
+    """
+    from massgen import Orchestrator
+    from massgen.agent_config import AgentConfig
+    from massgen.cli import create_agents_from_config, load_config_file
+
+    config_dict, _raw = load_config_file(config_path)
+    orchestrator_cfg = config_dict.get("orchestrator", {})
+
+    # Disable filesystem/MCP tools for lightweight benchmark agents
+    if not enable_filesystem:
+        for agent_def in config_dict.get("agents", []):
+            backend = agent_def.get("backend", {})
+            backend["exclude_file_operation_mcps"] = True
+
+    agents = create_agents_from_config(config_dict, orchestrator_cfg)
+    if not agents:
+        raise RuntimeError("No agents created from config")
+
+    # Inject system prompt into every agent
+    for agent in agents.values():
+        if hasattr(agent, "custom_system_instruction"):
+            agent.custom_system_instruction = system_prompt
+
+    agent_config = AgentConfig.from_dict(orchestrator_cfg) if orchestrator_cfg else None
+
+    orchestrator = Orchestrator(
+        agents=agents,
+        config=agent_config,
+        snapshot_storage=orchestrator_cfg.get("snapshot_storage"),
+        agent_temporary_workspace=orchestrator_cfg.get("agent_temporary_workspace"),
+    )
+    return orchestrator
+
+
 class MassGenOrchestratedAgent:
-    """Single Plancraft interface backed by MassGen orchestrator."""
+    """Single Plancraft interface backed by a persistent MassGen orchestrator."""
 
     def __init__(
         self,
@@ -79,7 +128,6 @@ class MassGenOrchestratedAgent:
         self.heartbeat_seconds = heartbeat_seconds
         self.event_logger = event_logger
 
-        self.conversation: list[dict] = []
         self.step_count = 0
         self.example_id: Optional[str] = None
         self.target: Optional[str] = None
@@ -87,18 +135,29 @@ class MassGenOrchestratedAgent:
         self.last_massgen_metadata: dict = {}
         self.last_call_elapsed_seconds: float = 0.0
 
+        self._orchestrator: Any = None
+
     def reset(self, example_id: str, target: str) -> None:
-        self.conversation = []
+        # Tear down previous orchestrator (let GC reclaim)
+        self._orchestrator = None
+
         self.step_count = 0
         self.example_id = example_id
         self.target = target
         self.last_massgen_metadata = {}
         self.last_call_elapsed_seconds = 0.0
 
-    async def act(self, observation_text: Optional[str]) -> str:
-        if observation_text:
-            self.conversation.append({"role": "user", "content": observation_text})
+        self._orchestrator = _create_orchestrator(
+            config_path=self.config_path,
+            system_prompt=SYSTEM_PROMPT,
+            enable_filesystem=False,
+        )
 
+    # ------------------------------------------------------------------
+    # Core turn logic
+    # ------------------------------------------------------------------
+
+    async def act(self, observation_text: Optional[str]) -> str:
         self.step_count += 1
         turn_context = {
             "example_id": self.example_id,
@@ -107,19 +166,31 @@ class MassGenOrchestratedAgent:
         }
         self._log_event({"event": "agent_turn_start", **turn_context})
 
-        action_text, metadata, elapsed = await call_massgen_with_retry(
-            config_path=self.config_path,
-            messages=self.conversation,
-            system_prompt=SYSTEM_PROMPT,
-            heartbeat_seconds=self.heartbeat_seconds,
-            enable_filesystem=False,
-            log_fn=self._log_event,
-            log_context=turn_context,
-        )
+        prompt = observation_text or ""
+        started_at = time.time()
+
+        # Stream response from the persistent orchestrator
+        action_text = await self._chat_and_collect(prompt)
+
+        elapsed = time.time() - started_at
+        self.last_call_elapsed_seconds = elapsed
+
+        # Retrieve coordination metadata from the live orchestrator
+        metadata: dict[str, Any] = {}
+        try:
+            coord = self._orchestrator.get_coordination_result()
+            metadata = {
+                "massgen_selected_agent": coord.get("selected_agent"),
+                "massgen_vote_results": coord.get("vote_results"),
+                "massgen_session_id": self._orchestrator.get_session_id()
+                if hasattr(self._orchestrator, "get_session_id")
+                else None,
+                "massgen_log_directory": coord.get("log_directory"),
+            }
+        except Exception:
+            pass
 
         self.last_massgen_metadata = metadata
-        self.last_call_elapsed_seconds = elapsed
-        self.conversation.append({"role": "model", "content": action_text})
 
         print(f"[MassGenOrchestratedAgent] MODEL RESPONSE: {action_text}")
         if metadata:
@@ -137,8 +208,7 @@ class MassGenOrchestratedAgent:
         if "search:" in action_text.lower():
             search_result = self._oracle_search(action_text)
             if search_result:
-                self.log(f"🔍 {action_text} -> Found recipe")
-                self.conversation.append({"role": "user", "content": search_result})
+                self.log(f"search: {action_text} -> Found recipe")
                 self._log_event(
                     {
                         "event": "oracle_search_injected",
@@ -147,7 +217,7 @@ class MassGenOrchestratedAgent:
                         **turn_context,
                     }
                 )
-                return await self.act(None)
+                return await self.act(search_result)
 
         self._log_event(
             {
@@ -158,6 +228,18 @@ class MassGenOrchestratedAgent:
             }
         )
         return action_text
+
+    async def _chat_and_collect(self, user_message: str) -> str:
+        """Send *user_message* to the persistent orchestrator and collect the
+        full response text from the stream."""
+        parts: list[str] = []
+        async for chunk in self._orchestrator.chat_simple(user_message):
+            if chunk.content:
+                parts.append(chunk.content)
+        text = "".join(parts).strip()
+        if not text:
+            raise ValueError("Empty response from MassGen orchestrator")
+        return text
 
     def _oracle_search(self, query: str) -> str:
         match = re.search(r"search:\s*(\S+)", query)
