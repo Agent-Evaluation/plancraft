@@ -10,7 +10,6 @@ from datetime import datetime
 ARCHITECTURES = ["single", "independent", "centralized", "decentralized", "hybrid"]
 
 BACKEND_SCRIPTS = {
-    "gemini": "eval_gemini.py",
     "copilot": "eval_copilot.py",
 }
 
@@ -121,20 +120,23 @@ def run_benchmark(limit: int, model: str, max_steps: int, output_dir: str, backe
     os.makedirs(output_dir, exist_ok=True)
     report = {}
     
-    eval_script = BACKEND_SCRIPTS[backend]
-    print(f"🔧 Backend: {backend} ({eval_script})")
+    eval_script = "eval_copilot.py"
+    print(f"🔧 Backend: copilot ({eval_script})")
     print(f"🤖 Model: {model}")
     print(f"📂 Split: {split} (Limit: {limit})")
     
     
     for arch in ARCHITECTURES:
         # Check if already done
-        prefix = "copilot" if backend == "copilot" else "gemini"
-        existing_files = [f for f in os.listdir("output") if f.endswith(".json") and arch in f and prefix in f and split in f]
+        prefix = "copilot"
+        target_dir = "plancraft/agents/benchmark/output"
+        os.makedirs(target_dir, exist_ok=True)
+        
+        existing_files = [f for f in os.listdir(target_dir) if f.endswith(".json") and arch in f and prefix in f and split in f]
         if existing_files:
             print(f"⏩ Skipping {arch} (Already completed)")
             # Load existing data for report
-            last_file = os.path.join("output", sorted(existing_files, key=lambda x: os.path.getmtime(os.path.join("output", x)), reverse=True)[0])
+            last_file = os.path.join(target_dir, sorted(existing_files, key=lambda x: os.path.getmtime(os.path.join(target_dir, x)), reverse=True)[0])
             with open(last_file) as f:
                 raw_data = json.load(f)
             
@@ -163,15 +165,16 @@ def run_benchmark(limit: int, model: str, max_steps: int, output_dir: str, backe
             subprocess.run(cmd, check=True)
             
             # Find output file
-            prefix = "copilot" if backend == "copilot" else "gemini"
+            prefix = "copilot"
+            target_dir = "plancraft/agents/benchmark/output"
             output_files = sorted(
-                [f for f in os.listdir("output") if f.endswith(".json") and arch in f and prefix in f],
-                key=lambda x: os.path.getmtime(os.path.join("output", x)),
+                [f for f in os.listdir(target_dir) if f.endswith(".json") and arch in f and prefix in f],
+                key=lambda x: os.path.getmtime(os.path.join(target_dir, x)),
                 reverse=True
             )
             
             if output_files:
-                last_file = os.path.join("output", output_files[0])
+                last_file = os.path.join(target_dir, output_files[0])
                 with open(last_file) as f:
                     raw_data = json.load(f)
                 
@@ -198,7 +201,7 @@ def run_benchmark(limit: int, model: str, max_steps: int, output_dir: str, backe
     date_str = datetime.now().strftime('%Y-%m-%d')
     md_content = generate_markdown_report(report, model, split, date_str)
     
-    md_file = "BENCHMARK_REPORT.md"
+    md_file = "plancraft/agents/benchmark/BENCHMARK_REPORT.md"
     with open(md_file, "w") as f:
         f.write(md_content)
         
