@@ -31,17 +31,24 @@ from plancraft.agents.copilot_multi import (
 )
 
 
-def get_agent(architecture: str, model_name: str, client):
+def get_agent(
+    architecture: str,
+    model_name: str,
+    client,
+    num_agents: int = 3,
+    rounds: int = 1,
+    peer_rounds: int = 1,
+):
     if architecture == "single":
         return CopilotSingleAgent(model_name, client)
     elif architecture == "independent":
-        return CopilotIndependentAgent(model_name, client)
+        return CopilotIndependentAgent(model_name, client, num_agents=num_agents)
     elif architecture == "centralized":
-        return CopilotCentralizedAgent(model_name, client)
+        return CopilotCentralizedAgent(model_name, client, num_agents=num_agents, rounds=rounds)
     elif architecture == "decentralized":
-        return CopilotDecentralizedAgent(model_name, client)
+        return CopilotDecentralizedAgent(model_name, client, num_agents=num_agents, rounds=rounds)
     elif architecture == "hybrid":
-        return CopilotHybridAgent(model_name, client)
+        return CopilotHybridAgent(model_name, client, num_agents=num_agents, rounds=rounds, peer_rounds=peer_rounds)
     else:
         raise ValueError(f"Unknown architecture: {architecture}")
 
@@ -52,6 +59,9 @@ async def run_evaluation(
     max_examples: int = 0,
     model_name: str = DEFAULT_MODEL,
     architecture: str = "single",
+    num_agents: int = 3,
+    rounds: int = 1,
+    peer_rounds: int = 1,
 ):
     # ---- Setup Copilot client ----
     print("🔌 Starting Copilot SDK client...")
@@ -66,7 +76,7 @@ async def run_evaluation(
 
         print(f"📦 Loaded {len(examples)} examples from split '{split}'")
         print(f"🤖 Model: {model_name} (via Copilot SDK)")
-        print(f"🏗️  Architecture: {architecture}")
+        print(f"🏗️  Architecture: {architecture} (n={num_agents}, r={rounds}, p={peer_rounds})")
         print(f"🔄 Max steps per example: {max_steps}")
         print("-" * 60)
 
@@ -94,7 +104,7 @@ async def run_evaluation(
             )
 
             # Initialize Agent
-            agent = get_agent(architecture, model_name, client)
+            agent = get_agent(architecture, model_name, client, num_agents=num_agents, rounds=rounds, peer_rounds=peer_rounds)
             agent.reset(example.id, example.target)
 
             # Get initial observation
@@ -216,6 +226,10 @@ if __name__ == "__main__":
         choices=["single", "independent", "centralized", "decentralized", "hybrid"],
         help="Agent architecture to use",
     )
+    # MAS hyperparameters (paper §3.1 / Table 2)
+    parser.add_argument("--num-agents", type=int, default=3, help="Number of sub-agents (n)")
+    parser.add_argument("--rounds", type=int, default=1, help="Orchestrator / debate rounds (r or d)")
+    parser.add_argument("--peer-rounds", type=int, default=1, help="Lateral peer rounds for Hybrid (p)")
     args = parser.parse_args()
 
     asyncio.run(
@@ -225,5 +239,8 @@ if __name__ == "__main__":
             max_examples=args.max_examples,
             model_name=args.model,
             architecture=args.architecture,
+            num_agents=args.num_agents,
+            rounds=args.rounds,
+            peer_rounds=args.peer_rounds,
         )
     )
