@@ -126,12 +126,14 @@ def run_benchmark(limit: int, model: str, max_steps: int, output_dir: str, backe
     print(f"📂 Split: {split} (Limit: {limit})")
     
     
+    target_dir = "plancraft/agents/benchmark/output"
+    os.makedirs(target_dir, exist_ok=True)
+    os.makedirs("plancraft/agents/benchmark/logs", exist_ok=True)
+    
+    processes = []
+    
     for arch in ARCHITECTURES:
-        # Check if already done
         prefix = "copilot"
-        target_dir = "plancraft/agents/benchmark/output"
-        os.makedirs(target_dir, exist_ok=True)
-        
         existing_files = [f for f in os.listdir(target_dir) if f.endswith(".json") and arch in f and prefix in f and split in f]
         if existing_files:
             print(f"⏩ Skipping {arch} (Already completed)")
@@ -143,17 +145,17 @@ def run_benchmark(limit: int, model: str, max_steps: int, output_dir: str, backe
             comp_stats, failures = analyze_results(raw_data)
             report[arch] = {
                 "success_rate": raw_data["success_rate"],
-                "avg_steps": sum(r["steps"] for r in raw_data["results"]) / len(raw_data["results"]),
+                "avg_steps": sum(r["steps"] for r in raw_data["results"]) / len(raw_data["results"]) if raw_data.get("results") else 0,
                 "complexity_stats": comp_stats,
                 "failures": failures,
                 "file": last_file
             }
             continue
 
-        print(f"\n🚀 Starting benchmark for: {arch}")
+        print(f"\n🚀 eg benchmark for: {arch}")
         
         cmd = [
-            "python3", eval_script,
+            "python3", "-u", eval_script,
             "--split", split,
             "--max-examples", str(limit),
             "--max-steps", str(max_steps),
@@ -161,12 +163,16 @@ def run_benchmark(limit: int, model: str, max_steps: int, output_dir: str, backe
             "--architecture", arch
         ]
         
-        try:
-            subprocess.run(cmd, check=True)
-            
-            # Find output file
-            prefix = "copilot"
-            target_dir = "plancraft/agents/benchmark/output"
+        log_file = open(f"plancraft/agents/benchmark/logs/{arch}.log", "w")
+        p = subprocess.Popen(cmd, stdout=log_file, stderr=subprocess.STDOUT)
+        processes.append((arch, p, log_file))
+        time.sleep(5)  # Stagger client initializations
+
+    for arch, p, log_file in processes:
+        p.wait()
+        log_file.close()
+        
+        if p.returncode == 0:
             output_files = sorted(
                 [f for f in os.listdir(target_dir) if f.endswith(".json") and arch in f and prefix in f],
                 key=lambda x: os.path.getmtime(os.path.join(target_dir, x)),
@@ -182,7 +188,7 @@ def run_benchmark(limit: int, model: str, max_steps: int, output_dir: str, backe
                 
                 report[arch] = {
                     "success_rate": raw_data["success_rate"],
-                    "avg_steps": sum(r["steps"] for r in raw_data["results"]) / len(raw_data["results"]),
+                    "avg_steps": sum(r["steps"] for r in raw_data["results"]) / len(raw_data["results"]) if raw_data.get("results") else 0,
                     "complexity_stats": comp_stats,
                     "failures": failures,
                     "file": last_file
@@ -190,12 +196,8 @@ def run_benchmark(limit: int, model: str, max_steps: int, output_dir: str, backe
                 print(f"✅ {arch} done. Success: {raw_data['success_rate']:.1%}")
             else:
                 print(f"⚠ Output file missing for {arch}")
-
-        except subprocess.CalledProcessError as e:
-            print(f"❌ {arch} failed: {e}")
-            
-        print("Waiting 10s cooldown...")
-        time.sleep(10)
+        else:
+            print(f"❌ {arch} failed with return code {p.returncode}. See logs/{arch}.log")
 
     # Generate Markdown Report
     date_str = datetime.now().strftime('%Y-%m-%d')
